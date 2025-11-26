@@ -1,19 +1,30 @@
 import React, { useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { Package } from 'lucide-react';
+import { Package, Loader2 } from 'lucide-react';
 
 export const Login: React.FC = () => {
   const { login } = useApp();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (login(username, password)) {
-      setError('');
-    } else {
-      setError('Credenciais inválidas. Tente novamente.');
+    setLoading(true);
+    setError('');
+    
+    try {
+      const success = await login(username, password);
+      if (success) {
+        setError('');
+      } else {
+        setError('Credenciais inválidas ou erro de conexão.');
+      }
+    } catch (e) {
+      setError('Erro ao tentar conectar ao sistema.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -44,6 +55,7 @@ export const Login: React.FC = () => {
               className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
               placeholder="Digite seu usuário"
               required
+              disabled={loading}
             />
           </div>
           
@@ -56,14 +68,16 @@ export const Login: React.FC = () => {
               className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
               placeholder="••••••••"
               required
+              disabled={loading}
             />
           </div>
           
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all transform active:scale-95"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center"
           >
-            Entrar no Sistema
+            {loading ? <Loader2 className="animate-spin mr-2" /> : 'Entrar no Sistema'}
           </button>
         </form>
         <div className="bg-gray-50 p-4 text-center text-xs text-gray-500">
