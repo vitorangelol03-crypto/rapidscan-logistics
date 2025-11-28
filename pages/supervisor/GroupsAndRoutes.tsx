@@ -1,12 +1,19 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { RouteGroup, ScanStatus } from '../../types';
-import { generateSafeId } from '../../utils/helpers';
 import { Plus, Download, CheckCircle, XCircle, Map, Layers, Settings, Edit2, Trash2, X, Save, Upload, FileSpreadsheet } from 'lucide-react';
 
 interface GroupsAndRoutesProps {
   view: 'monitoring' | 'management';
 }
+
+// Função segura para gerar IDs sem depender do crypto.randomUUID que pode falhar em HTTP
+const generateSafeId = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
   const { routes, addRoute, updateRoute, deleteRoute, importRoutes, toggleRouteStatus, scans, packages } = useApp();
@@ -21,54 +28,6 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [parsedBulkRoutes, setParsedBulkRoutes] = useState<RouteGroup[]>([]);
   const [fileName, setFileName] = useState('');
-
-  // Performance Optimization: Calculate route stats once per render/dependency change
-  const routeStatsMap = useMemo(() => {
-    const stats = new Map<string, { scannedCount: number, totalExpected: number, percentage: number }>();
-    
-    // Create a quick lookup for package counts per cep prefix? 
-    // Given the complexity of "startsWith", we iterate routes.
-    // Optimization: Pre-filter scans by route
-    const scansByRoute = new Map<string, number>();
-    scans.forEach(s => {
-        if (s.status === ScanStatus.SUCCESS || s.status === ScanStatus.MANUAL) {
-            scansByRoute.set(s.routeId, (scansByRoute.get(s.routeId) || 0) + 1);
-        }
-    });
-
-    routes.forEach(route => {
-        const scannedCount = scansByRoute.get(route.id) || 0;
-        
-        // Calculate Expected
-        let totalExpected = 0;
-        const routeCepsClean = route.ceps.map(c => c.replace(/\D/g, ''));
-
-        if (routeCepsClean.length === 0) {
-            // Se a rota não tem CEPs, tecnicamente aceita tudo, mas para barra de progresso
-            // consideramos o total de pacotes como base (cenário 'Coringa')
-            totalExpected = packages.size;
-        } else {
-             // Expensive Loop: 10k packages x N routes.
-             // Can we optimize?
-             // Since packages are a Map<tracking, cep>, we iterate values.
-             for (const pkgCep of packages.values()) {
-                 const cleanPkgCep = pkgCep.replace(/\D/g, '');
-                 // Check if belongs to route
-                 for (const rc of routeCepsClean) {
-                     if (cleanPkgCep.startsWith(rc)) {
-                         totalExpected++;
-                         break; // Found match for this package in this route
-                     }
-                 }
-             }
-        }
-
-        const percentage = totalExpected > 0 ? (scannedCount / totalExpected) * 100 : 0;
-        stats.set(route.id, { scannedCount, totalExpected, percentage });
-    });
-
-    return stats;
-  }, [routes, scans, packages]);
 
   const handleSaveGroup = (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,7 +139,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
 
           // Convert Object to RouteGroup[]
           const newRoutes: RouteGroup[] = Object.keys(routeMap).map(name => ({
-              id: generateSafeId(),
+              id: generateSafeId(), // Usando gerador seguro
               name: name,
               ceps: routeMap[name].ceps,
               category: routeMap[name].category,
@@ -252,6 +211,31 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
     document.body.removeChild(link);
   };
 
+  // Helper to calculate stats per route
+  const getRouteStats = (route: RouteGroup) => {
+      // 1. Scanned Count
+      const scannedCount = scans.filter(s => s.routeId === route.id && (s.status === ScanStatus.SUCCESS || s.status === ScanStatus.MANUAL)).length;
+
+      // 2. Total Expected
+      let totalExpected = 0;
+      const routeCepsClean = route.ceps.map(c => c.replace(/\D/g, ''));
+
+      if (routeCepsClean.length === 0) {
+          totalExpected = packages.size;
+      } else {
+          for (const pkgCep of packages.values()) {
+             const cleanPkgCep = pkgCep.replace(/\D/g, '');
+             if (routeCepsClean.some(rc => cleanPkgCep.startsWith(rc))) {
+                 totalExpected++;
+             }
+          }
+      }
+
+      const percentage = totalExpected > 0 ? (scannedCount / totalExpected) * 100 : 0;
+      
+      return { scannedCount, totalExpected, percentage };
+  };
+
   // --- VISÃO DE MONITORAMENTO (ABA ROTAS) ---
   if (view === 'monitoring') {
     return (
@@ -279,9 +263,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {routes.map(route => {
-                                // Retrieve stats from memoized map
-                                const stats = routeStatsMap.get(route.id) || { scannedCount: 0, totalExpected: 0, percentage: 0 };
-                                
+                                const stats = getRouteStats(route);
                                 return (
                                 <tr key={route.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4 font-medium text-gray-800">
