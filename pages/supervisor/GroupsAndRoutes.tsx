@@ -13,6 +13,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
   // Group Form State
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [groupName, setGroupName] = useState('');
+  const [groupCategory, setGroupCategory] = useState('A');
   const [groupCeps, setGroupCeps] = useState('');
 
   // Bulk Import State
@@ -29,6 +30,8 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
         .map(c => c.trim())
         .filter(c => c.length > 0);
 
+    const category = groupCategory.toUpperCase().substring(0, 1) || 'A';
+
     if (editingRouteId) {
         // Edit Mode
         const existingRoute = routes.find(r => r.id === editingRouteId);
@@ -37,6 +40,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                 ...existingRoute,
                 name: groupName,
                 ceps: cepsList,
+                category: category
             };
             updateRoute(updatedRoute);
             alert('Grupo atualizado com sucesso!');
@@ -47,6 +51,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
             id: crypto.randomUUID(),
             name: groupName,
             ceps: cepsList,
+            category: category,
             completed: false
         };
         addRoute(newRoute);
@@ -56,12 +61,13 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
     // Reset Form
     setEditingRouteId(null);
     setGroupName('');
+    setGroupCategory('A');
     setGroupCeps('');
   };
 
   const handleDownloadTemplate = () => {
-      // CSV Content: Header + Examples (Line by Line format)
-      const csvContent = "NOME_DA_ROTA;CEP\nRota Mutum;36955000\nRota Mutum;36956000\nRota Mutum;36957000\nRota Centro;36900000\nRota Centro;36900001";
+      // CSV Content: Header + Examples (Line by Line format + Category)
+      const csvContent = "NOME_DA_ROTA;CEP;CATEGORIA\nRota Mutum;36955000;A\nRota Mutum;36956000;A\nRota Centro;36900000;B\nRota Centro;36900001;B";
       
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -85,8 +91,9 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
           if (!text) return;
 
           const lines = text.split('\n');
-          // Map to aggregate CEPs by Route Name
-          const routeMap = new Map<string, Set<string>>();
+          // Map to aggregate CEPs by Route Name, and keep the category
+          // Key: RouteName, Value: { ceps: Set<string>, category: string }
+          const routeMap = new Map<string, { ceps: Set<string>, category: string }>();
 
           // Skip header (index 0)
           for (let i = 1; i < lines.length; i++) {
@@ -98,26 +105,33 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                   const name = parts[0].trim();
                   if (!name) continue;
 
-                  // Get existing set or create new
+                  // Default category is A if missing
+                  let cat = 'A';
+                  if (parts.length >= 3 && parts[2].trim()) {
+                      cat = parts[2].trim().toUpperCase().substring(0, 1);
+                  }
+
+                  // Get existing or create new
                   if (!routeMap.has(name)) {
-                      routeMap.set(name, new Set());
+                      routeMap.set(name, { ceps: new Set(), category: cat });
                   }
 
                   // Process CEP if present
                   if (parts[1]) {
                       const cleanCep = parts[1].replace(/\D/g, ''); // Remove non-digits
                       if (cleanCep.length > 0) {
-                          routeMap.get(name)?.add(cleanCep);
+                          routeMap.get(name)?.ceps.add(cleanCep);
                       }
                   }
               }
           }
 
           // Convert Map to RouteGroup[]
-          const newRoutes: RouteGroup[] = Array.from(routeMap.entries()).map(([name, cepsSet]) => ({
+          const newRoutes: RouteGroup[] = Array.from(routeMap.entries()).map(([name, data]) => ({
               id: crypto.randomUUID(),
               name: name,
-              ceps: Array.from(cepsSet),
+              ceps: Array.from(data.ceps),
+              category: data.category,
               completed: false
           }));
 
@@ -143,6 +157,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
   const handleEdit = (route: RouteGroup) => {
       setEditingRouteId(route.id);
       setGroupName(route.name);
+      setGroupCategory(route.category || 'A');
       setGroupCeps(route.ceps.join(', '));
       // Scroll to top to see form
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -151,6 +166,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
   const handleCancelEdit = () => {
       setEditingRouteId(null);
       setGroupName('');
+      setGroupCategory('A');
       setGroupCeps('');
   };
 
@@ -189,19 +205,13 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
       // 1. Scanned Count
       const scannedCount = scans.filter(s => s.routeId === route.id && (s.status === ScanStatus.SUCCESS || s.status === ScanStatus.MANUAL)).length;
 
-      // 2. Total Expected (Based on imported Packages + Route Rules)
+      // 2. Total Expected
       let totalExpected = 0;
       const routeCepsClean = route.ceps.map(c => c.replace(/\D/g, ''));
 
-      // If route has no CEPs, it's a wildcard (matches everything theoretically, 
-      // or we assume it matches the whole load if it's the only route. 
-      // Following processScan logic: matches everything).
       if (routeCepsClean.length === 0) {
           totalExpected = packages.size;
       } else {
-          // Iterate all packages to count matches
-          // Note: This iterates 10k items per route render. For < 50 routes it's fine (JS is fast).
-          // For huge datasets, we would optimize this with a reverse index.
           for (const pkgCep of packages.values()) {
              const cleanPkgCep = pkgCep.replace(/\D/g, '');
              if (routeCepsClean.some(rc => cleanPkgCep.startsWith(rc))) {
@@ -210,8 +220,6 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
           }
       }
 
-      // Cap scanned count visually at totalExpected to avoid > 100% confusion if user scans extras manually
-      // but keep real percentage if needed. For UI bar we cap at 100%.
       const percentage = totalExpected > 0 ? (scannedCount / totalExpected) * 100 : 0;
       
       return { scannedCount, totalExpected, percentage };
@@ -235,7 +243,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                 <table className="w-full text-left min-w-[800px]">
                     <thead className="bg-gray-50 border-b border-gray-100">
                         <tr>
-                            <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Rota</th>
+                            <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Rota / Setor</th>
                             <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Configuração</th>
                             <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase w-64">Progresso</th>
                             <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
@@ -247,7 +255,14 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                                 const stats = getRouteStats(route);
                                 return (
                                 <tr key={route.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="px-6 py-4 font-medium text-gray-800">{route.name}</td>
+                                    <td className="px-6 py-4 font-medium text-gray-800">
+                                        <div className="flex items-center">
+                                            <span className="w-6 h-6 rounded bg-slate-200 text-slate-700 flex items-center justify-center text-xs font-bold mr-2">
+                                                {route.category || 'A'}
+                                            </span>
+                                            {route.name}
+                                        </div>
+                                    </td>
                                     <td className="px-6 py-4 text-sm text-gray-500">
                                         {route.ceps.length > 0 ? `${route.ceps.length} CEPs vinculados` : 'Sem restrição de CEP'}
                                     </td>
@@ -337,9 +352,9 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                             <div className="flex-1">
                                 <h4 className="font-bold text-gray-700 mb-2">1. Baixe o Modelo</h4>
                                 <p className="text-sm text-gray-500 mb-3">
-                                    Baixe nossa planilha modelo (.csv). O formato é simples: <strong>NOME_DA_ROTA;CEP</strong>.
+                                    Baixe nossa planilha modelo (.csv). O formato é: <strong>NOME;CEP;CATEGORIA</strong>.
                                     <br/><br/>
-                                    Para adicionar múltiplos CEPs à mesma rota, basta repetir o nome da rota em várias linhas.
+                                    A categoria é uma letra (A, B, C) para agrupar as rotas no scanner.
                                 </p>
                                 <button 
                                     onClick={handleDownloadTemplate}
@@ -375,7 +390,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                                  </h5>
                                  <div className="max-h-32 overflow-y-auto text-xs text-green-700 font-mono space-y-1">
                                      {parsedBulkRoutes.slice(0, 5).map((r, i) => (
-                                         <div key={i}>{r.name} ({r.ceps.length} CEPs)</div>
+                                         <div key={i}>[{r.category}] {r.name} ({r.ceps.length} CEPs)</div>
                                      ))}
                                      {parsedBulkRoutes.length > 5 && <div>...e mais {parsedBulkRoutes.length - 5}.</div>}
                                  </div>
@@ -435,17 +450,31 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                     </div>
                     
                     <form onSubmit={handleSaveGroup}>
-                        <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Nome Identificador</label>
-                            <input 
-                                type="text" 
-                                className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 px-3 py-2 border"
-                                placeholder="Ex: Rota Mutum, Centro..."
-                                value={groupName}
-                                onChange={e => setGroupName(e.target.value)}
-                                required
-                            />
-                        </div>
+                         <div className="grid grid-cols-4 gap-3 mb-4">
+                            <div className="col-span-3">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Nome Identificador</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 px-3 py-2 border"
+                                    placeholder="Ex: Rota Mutum"
+                                    value={groupName}
+                                    onChange={e => setGroupName(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            <div className="col-span-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Setor</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 px-3 py-2 border text-center uppercase"
+                                    placeholder="A"
+                                    maxLength={1}
+                                    value={groupCategory}
+                                    onChange={e => setGroupCategory(e.target.value)}
+                                    required
+                                />
+                            </div>
+                         </div>
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-700 mb-1">CEPs Vinculados</label>
                             <textarea 
@@ -456,7 +485,7 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                             />
                             <p className="text-xs text-gray-500 mt-2">
                                 Separe os CEPs por vírgula. <br/>
-                                <span className="text-orange-500">Atenção:</span> Deixe em branco para criar uma rota "Coringa" (aceita qualquer pacote).
+                                <span className="text-orange-500">Atenção:</span> Deixe em branco para criar uma rota "Coringa".
                             </p>
                         </div>
                         <div className="flex gap-2">
@@ -484,16 +513,16 @@ export const GroupsAndRoutes: React.FC<GroupsAndRoutesProps> = ({ view }) => {
                     <div key={route.id} className={`bg-white rounded-lg border p-4 hover:shadow-md transition-all flex flex-col md:flex-row md:items-center justify-between ${editingRouteId === route.id ? 'border-yellow-400 ring-2 ring-yellow-100' : 'border-gray-200'}`}>
                         <div className="mb-4 md:mb-0 flex-1">
                             <div className="flex items-center">
-                                <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold mr-3 text-xs">
-                                    ID
+                                <div className="h-10 w-10 rounded bg-slate-800 text-white flex items-center justify-center font-bold mr-3 text-lg shadow-sm">
+                                    {route.category || 'A'}
                                 </div>
                                 <div>
                                     <h4 className="font-bold text-gray-800 text-lg">{route.name}</h4>
-                                    <p className="text-xs text-gray-400">Criado em: {new Date().toLocaleDateString()}</p>
+                                    <p className="text-xs text-gray-400">ID: {route.id.substring(0,8)}...</p>
                                 </div>
                             </div>
                             
-                            <div className="mt-3 ml-11">
+                            <div className="mt-3 ml-12">
                                 {route.ceps.length > 0 ? (
                                     <div className="flex flex-wrap gap-2">
                                         {route.ceps.slice(0, 8).map((cep, idx) => (

@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../../store/AppContext';
 import { ScanStatus } from '../../types';
-import { ScanBarcode, ToggleRight, ToggleLeft, CheckCircle, XCircle, AlertTriangle, List, LogOut, Check } from 'lucide-react';
+import { ScanBarcode, ToggleRight, ToggleLeft, CheckCircle, XCircle, AlertTriangle, List, LogOut, Check, Filter } from 'lucide-react';
 
 export const Scanner: React.FC = () => {
   const { routes, currentUser, processScan, assignOperatorRoute, activeOperatorRoutes, toggleRouteStatus } = useApp();
@@ -11,8 +11,24 @@ export const Scanner: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [manualMode, setManualMode] = useState(false);
   const [lastScanResult, setLastScanResult] = useState<{ status: ScanStatus; message: string; code: string } | null>(null);
+  
+  // Category Filtering
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
 
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Available Categories (A, B, C...) sorted
+  const categories = useMemo(() => {
+    const cats = new Set(routes.map(r => r.category || 'A'));
+    return Array.from(cats).sort();
+  }, [routes]);
+
+  // Set default category to the first one available if none selected
+  useEffect(() => {
+    if (!selectedCategory && categories.length > 0) {
+        setSelectedCategory(categories[0]);
+    }
+  }, [categories, selectedCategory]);
 
   // Focus keeper - slightly less aggressive on mobile to allow button clicks
   useEffect(() => {
@@ -106,26 +122,51 @@ export const Scanner: React.FC = () => {
   }
 
   if (!selectedRouteId) {
+      const filteredRoutes = routes.filter(r => !r.completed && (r.category || 'A') === selectedCategory);
+
       return (
-          <div className="max-w-md mx-auto mt-4 md:mt-10 p-4 md:p-8 bg-white rounded-xl shadow-lg text-center">
-              <List size={40} className="mx-auto text-blue-500 mb-4" />
-              <h2 className="text-xl font-bold text-gray-800 mb-2">Selecione uma Rota</h2>
-              <p className="text-gray-500 mb-6 text-sm">Para iniciar a bipagem, escolha qual rota você irá operar.</p>
+          <div className="max-w-md mx-auto mt-4 md:mt-6 p-4 md:p-6 bg-white rounded-xl shadow-lg flex flex-col h-[calc(100vh-140px)]">
+              <div className="text-center mb-4">
+                <List size={32} className="mx-auto text-blue-500 mb-2" />
+                <h2 className="text-xl font-bold text-gray-800">Selecione uma Rota</h2>
+              </div>
               
-              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-                  {routes.filter(r => !r.completed).map(r => (
+              {/* Category Tabs */}
+              <div className="flex overflow-x-auto pb-2 mb-4 gap-2 no-scrollbar">
+                  {categories.map(cat => (
+                      <button
+                        key={cat}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`flex-shrink-0 w-12 h-12 rounded-lg font-bold text-lg flex items-center justify-center transition-all ${
+                            selectedCategory === cat 
+                            ? 'bg-slate-800 text-white shadow-md transform scale-105' 
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}
+                      >
+                          {cat}
+                      </button>
+                  ))}
+              </div>
+              
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                  {filteredRoutes.map(r => (
                       <button 
                         key={r.id}
                         onClick={() => setSelectedRouteId(r.id)}
-                        className="w-full p-4 border rounded-lg hover:bg-blue-50 hover:border-blue-500 hover:text-blue-700 transition-all text-left font-medium flex justify-between items-center active:bg-blue-100"
+                        className="w-full p-4 border rounded-lg hover:bg-blue-50 hover:border-blue-500 hover:text-blue-700 transition-all text-left font-medium flex justify-between items-center active:bg-blue-100 group"
                       >
-                          <span className="truncate mr-2">{r.name}</span>
+                          <div className="flex items-center overflow-hidden">
+                              <span className="w-8 h-8 rounded bg-gray-100 group-hover:bg-white text-gray-600 font-bold flex items-center justify-center mr-3 text-sm flex-shrink-0">
+                                  {r.category || 'A'}
+                              </span>
+                              <span className="truncate mr-2 text-lg">{r.name}</span>
+                          </div>
                           <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full whitespace-nowrap">{r.ceps.length} CEPs</span>
                       </button>
                   ))}
-                  {routes.filter(r => !r.completed).length === 0 && (
-                      <div className="text-sm text-yellow-600 bg-yellow-50 p-4 rounded-lg">
-                          Não há rotas disponíveis.
+                  {filteredRoutes.length === 0 && (
+                      <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">
+                          Nenhuma rota disponível no setor {selectedCategory}.
                       </div>
                   )}
               </div>

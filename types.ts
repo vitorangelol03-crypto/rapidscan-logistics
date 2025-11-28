@@ -16,6 +16,7 @@ export interface RouteGroup {
   id: string;
   name: string;
   ceps: string[]; // List of CEP prefixes or full CEPs
+  category: string; // New field for grouping (A, B, C...)
   completed: boolean;
 }
 
