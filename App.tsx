@@ -31,8 +31,8 @@ const Main: React.FC = () => {
       switch (page) {
         case 'dashboard': return <Dashboard />;
         case 'control': return <Control />;
-        case 'routes': 
-        case 'groups': return <GroupsAndRoutes />;
+        case 'routes': return <GroupsAndRoutes view="monitoring" />;
+        case 'groups': return <GroupsAndRoutes view="management" />;
         case 'import': return <Import />;
         case 'employees': return <Employees />;
         case 'clean': return <Settings />;

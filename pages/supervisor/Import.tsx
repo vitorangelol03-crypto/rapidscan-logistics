@@ -18,31 +18,59 @@ export const Import: React.FC = () => {
     try {
       const lines = inputText.split('\n');
       const newData: PackageData[] = [];
+      let skippedCount = 0;
 
       lines.forEach(line => {
-        // Assume CSV: Code, CEP OR Tab separated
-        // Flexible parsing
-        const parts = line.split(/[,\t;]+/); 
+        // Ignorar linhas vazias
+        if (!line.trim()) return;
+
+        // Separar pelo caractere ;
+        const parts = line.split(';');
+
         if (parts.length >= 2) {
-          const code = parts[0].trim();
-          const cep = parts[1].trim();
-          if (code && cep) {
-            newData.push({ trackingCode: code, cep });
-          }
+            // Requisito: trackingCode = texto antes do ;
+            const rawCode = parts[0].trim().toUpperCase();
+            // Requisito: cep = texto depois do ;
+            const rawCep = parts[1].trim();
+
+            // Limpar CEP (deixar apenas números)
+            const cleanCep = rawCep.replace(/\D/g, '');
+
+            // Validação: 
+            // 1. Code deve começar com 2 letras (Ex: BR...)
+            // 2. CEP deve ter 8 números
+            const isCodeValid = /^[A-Z]{2}/.test(rawCode);
+            const isCepValid = /^\d{8}$/.test(cleanCep);
+
+            if (isCodeValid && isCepValid) {
+                newData.push({ trackingCode: rawCode, cep: cleanCep });
+            } else {
+                skippedCount++;
+            }
+        } else {
+            skippedCount++;
         }
       });
 
       if (newData.length === 0) {
-        setError("Nenhum dado válido encontrado. Certifique-se do formato: Código, CEP");
+        setError("Nenhum dado válido encontrado. Certifique-se do formato: CODIGO;CEP (Ex: BR123;36900000)");
         return;
       }
 
       importPackages(newData);
+      
+      const successMessage = skippedCount > 0 
+        ? `Importação parcial: ${newData.length} importados, ${skippedCount} ignorados (formato inválido).`
+        : `Importação concluída com sucesso! ${newData.length} pacotes processados.`;
+      
       setStats({ total: newData.length });
-      setInputText('');
+      setInputText(''); // Limpar campo
       setError('');
+      alert(successMessage);
+
     } catch (e) {
-      setError("Erro ao processar dados.");
+      setError("Erro crítico ao processar dados.");
+      console.error(e);
     }
   };
 
@@ -68,16 +96,18 @@ export const Import: React.FC = () => {
         <div className="mb-6 p-4 bg-blue-50 text-blue-800 rounded-lg text-sm">
           <p className="font-semibold mb-1">Instruções:</p>
           <ul className="list-disc list-inside">
-            <li>O arquivo deve conter duas colunas: <strong>Código de Rastreio</strong> e <strong>CEP</strong>.</li>
-            <li>Você pode colar os dados diretamente no campo abaixo ou selecionar um arquivo CSV/TXT.</li>
-            <li>Esta importação substituirá os dados de referência para validação de rotas.</li>
+            <li>O formato deve ser estritamente: <strong>CÓDIGO;CEP</strong> (separado por ponto e vírgula).</li>
+            <li>O código deve começar com 2 letras (ex: BR).</li>
+            <li>O CEP deve conter 8 números.</li>
+            <li>Linhas fora do formato serão ignoradas.</li>
+            <li>Códigos duplicados terão seus CEPs atualizados.</li>
           </ul>
         </div>
 
-        {stats && (
+        {stats && !error && (
            <div className="mb-6 p-4 bg-green-50 text-green-800 rounded-lg flex items-center animate-fade-in">
              <CheckCircle className="mr-2" />
-             Sucesso! {stats.total} pacotes foram importados para o sistema.
+             Importação concluída. {stats.total} novos registros.
            </div>
         )}
 
@@ -89,10 +119,10 @@ export const Import: React.FC = () => {
         )}
 
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Colar Dados (Código, CEP)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Colar Dados (CÓDIGO;CEP)</label>
           <textarea
             className="w-full h-48 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-            placeholder={`BR123456789, 36955000\nBR987654321, 29100000\n...`}
+            placeholder={`BR250300024160B;36955000\nBR258700002222X;36098700`}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
           ></textarea>

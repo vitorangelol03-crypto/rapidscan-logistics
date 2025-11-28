@@ -19,6 +19,9 @@ interface AppState {
   updateUser: (user: User) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
   addRoute: (route: RouteGroup) => Promise<void>;
+  updateRoute: (route: RouteGroup) => Promise<void>;
+  deleteRoute: (id: string) => Promise<void>;
+  importRoutes: (newRoutes: RouteGroup[]) => Promise<void>; // Nova função
   toggleRouteStatus: (id: string, status: boolean) => Promise<void>;
   importPackages: (data: PackageData[]) => Promise<void>;
   processScan: (trackingCode: string, routeId: string, manualMode: boolean) => { status: ScanStatus; message: string };
@@ -199,6 +202,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRoutes([...routes, route]);
     await supabase.from('routes').insert(route);
   };
+
+  const importRoutes = async (newRoutes: RouteGroup[]) => {
+    setRoutes([...routes, ...newRoutes]);
+    const { error } = await supabase.from('routes').insert(newRoutes);
+    if (error) console.error("Error batch importing routes", error);
+  };
+
+  const updateRoute = async (updatedRoute: RouteGroup) => {
+    setRoutes(prev => prev.map(r => r.id === updatedRoute.id ? updatedRoute : r));
+    await supabase.from('routes').update({
+        name: updatedRoute.name,
+        ceps: updatedRoute.ceps,
+        completed: updatedRoute.completed
+    }).eq('id', updatedRoute.id);
+  };
+
+  const deleteRoute = async (id: string) => {
+    setRoutes(prev => prev.filter(r => r.id !== id));
+    await supabase.from('routes').delete().eq('id', id);
+  };
   
   const toggleRouteStatus = async (id: string, status: boolean) => {
     setRoutes(routes.map(r => r.id === id ? { ...r, completed: status } : r));
@@ -223,22 +246,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsLoading(true);
 
     // 1. Update Local Memory (Fast)
+    // Merge new data into existing map
     const newMap = new Map(packages);
     data.forEach(p => newMap.set(p.trackingCode, p.cep));
     setPackages(newMap);
 
-    // 2. Clear current DB Packages (Full replace as requested "Importação do dia")
-    await supabase.from('packages').delete().neq('tracking_code', '0'); // Delete all
-
-    // 3. Batch Insert (Supabase handles batch efficiently)
-    // Chunking in case of 10k rows to avoid payload limit
+    // 2. Batch UPSERT (Insert or Update if exists)
+    // We removed the 'delete' call to allow updating existing records without wiping the table
     const CHUNK_SIZE = 1000;
     for (let i = 0; i < data.length; i += CHUNK_SIZE) {
         const chunk = data.slice(i, i + CHUNK_SIZE).map(d => ({
             tracking_code: d.trackingCode,
             cep: d.cep
         }));
-        await supabase.from('packages').insert(chunk);
+        // Use UPSERT: requires unique constraint on 'tracking_code' (primary key)
+        const { error } = await supabase.from('packages').upsert(chunk, { onConflict: 'tracking_code' });
+        
+        if (error) {
+            console.error("Error upserting packages chunk", error);
+        }
     }
     
     setIsLoading(false);
@@ -374,7 +400,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider value={{
       currentUser, users, routes, packages, scans, activeOperatorRoutes, isLoading,
       login, logout, addUser, updateUser, deleteUser,
-      addRoute, toggleRouteStatus, assignOperatorRoute,
+      addRoute, updateRoute, deleteRoute, importRoutes, toggleRouteStatus, assignOperatorRoute,
       importPackages, processScan, clearDailyData
     }}>
       {children}
