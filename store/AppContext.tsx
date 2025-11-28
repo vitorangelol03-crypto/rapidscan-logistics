@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User, UserRole, RouteGroup, PackageData, ScanLog, ScanStatus } from '../types';
 import { playFeedbackSound } from '../utils/audio';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { generateSafeId } from '../utils/helpers';
 
 interface AppState {
   currentUser: User | null;
@@ -279,7 +280,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isDuplicate) {
       playFeedbackSound('warning');
       const errorLog: ScanLog = {
-        id: crypto.randomUUID(),
+        id: generateSafeId(),
         timestamp: Date.now(),
         operatorId: currentUser.id,
         operatorName: currentUser.name,
@@ -336,7 +337,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const newScan: ScanLog = {
-      id: crypto.randomUUID(),
+      id: generateSafeId(),
       timestamp: Date.now(),
       operatorId: currentUser.id,
       operatorName: currentUser.name,
